@@ -83,7 +83,8 @@ private:
   // void extract_good_points();
   void add_mask_of_point(Pt_infos *pt_infos, const E_point_type &pt_type,
                          int neighbor_count = 0);
-  std::vector<PCloudXYZIPtr> preprocess_pointinfo(PCloudXYZIPtr &pCloudIn);
+  std::vector<PCloudXYZIPtr> preprocess_pointinfo(PCloudXYZI &cloudIn);
+
   void compute_features();
 
 private:
@@ -94,8 +95,9 @@ private:
   float m_livox_min_allow_dis = 1.0;
   float m_livox_min_sigma = 7e-3;
   float m_max_edge_polar_pos;
-  float m_feature_surface_depth_sq2_th = 1000000.0;
-  float m_feature_corner_depth_sq2_th = 900.0;
+  float m_feature_surface_depth_sq2_th = 40000.0;
+  float m_feature_corner_depth_sq2_th = 6400.0;
+  int frame_cnt;
 };
 
 #endif

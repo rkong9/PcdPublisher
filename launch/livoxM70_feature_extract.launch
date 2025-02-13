@@ -1,19 +1,15 @@
 <launch>
     <node pkg="pcd_publisher" type="pcd_publisher_node" name="publish1">
-        <param name="pcd_dir" value="/home/ruiyu/Data/SimulationData/265-gantryDrive-20230816-140323/lidarLivox_010/" />
+        <param name="pcd_dir" value="/home/ruiyu/Data/SimulationData/265-gantryDrive-20230816-140323/lidarLivox_013/" />
     </node>
 
-    <node pkg="pcd_publisher" type="pcd_publisher_process" name="process1">
+    <node pkg="pcd_publisher" type="livox_feature_extractor" name="feature_ext1">
         <param name="pcd_source" value="pointcloud" />
-        <param name="grid_res" value="0.5" />
-        <param name="height_th" value="0.4" />
-        <param name="leaf_2d" value="0.05" />
-        <param name="get_min_z_frames" value="10" />
     </node>
 
     <arg name="rviz" default="true" />
     <group if="$(arg rviz)">
-        <node launch-prefix="nice" pkg="rviz" type="rviz" name="rviz" args="-d $(find pcd_publisher)/config/gantry_pcd.rviz" />
+        <node launch-prefix="nice" pkg="rviz" type="rviz" name="rviz" args="-d $(find pcd_publisher)/config/feature_ext1.rviz" />
     </group>
 
 </launch>

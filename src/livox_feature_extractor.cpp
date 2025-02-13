@@ -18,6 +18,9 @@
 #include <sensor_msgs/PointCloud2.h>
 #include <thread>
 #include <vector>
+#include <fstream>
+
+#include "livox_feature_extractor.hpp"
 
 std::mutex mDataMutex;
 std::condition_variable mDataCv;
@@ -38,6 +41,18 @@ void pointCloudCallback(const sensor_msgs::PointCloud2ConstPtr &msg) {
 }
 
 void processThread() {
+  LivoxFeature lf;
+
+  ros::NodeHandle nh;
+  ros::NodeHandle nh_private("~");
+
+  ros::Publisher corner_pc_pub =
+      nh.advertise<sensor_msgs::PointCloud2>("/corner_pc", 10);
+  ros::Publisher surface_pc_pub =
+      nh.advertise<sensor_msgs::PointCloud2>("/surface_pc", 10);
+  ros::Publisher all_pc_pub =
+      nh.advertise<sensor_msgs::PointCloud2>("/all_pc_pub", 10);
+
   while (ros::ok()) {
     sensor_msgs::PointCloud2Ptr pMsg(nullptr);
     {
@@ -64,42 +79,56 @@ void processThread() {
     // pcl::PointCloud<pcl::PointXYZI>());
     pcl::PointCloud<pcl::PointXYZI>::Ptr pCloudOut(
         new pcl::PointCloud<pcl::PointXYZI>());
-    pcl::PointCloud<pcl::PointXYZI>::Ptr pCloudGoodPts(
+    pcl::PointCloud<pcl::PointXYZI>::Ptr pCloudCorner(
+        new pcl::PointCloud<pcl::PointXYZI>());
+    pcl::PointCloud<pcl::PointXYZI>::Ptr pCloudSurface(
+        new pcl::PointCloud<pcl::PointXYZI>());
+    pcl::PointCloud<pcl::PointXYZI>::Ptr pCloudFullAll(
         new pcl::PointCloud<pcl::PointXYZI>());
 
     pcl::fromROSMsg(*pMsg, *pCloudIn);
-    extract_good_points(pCloudIn, pCloudGoodPts);
+
+    std::vector<PCloudXYZIPtr> vScansClouds = lf.processCloud(pCloudIn);
+    lf.getFeatures(*pCloudCorner, *pCloudSurface, *pCloudFullAll, 0, pCloudIn->size() - 1, 5);
+
+    sensor_msgs::PointCloud2 corner_msg;
+    pcl::toROSMsg(*pCloudCorner, corner_msg);
+    corner_msg.header = pMsg->header;
+    corner_pc_pub.publish(corner_msg);
+
+    sensor_msgs::PointCloud2 surface_msg;
+    pcl::toROSMsg(*pCloudSurface, surface_msg);
+    surface_msg.header = pMsg->header;
+    surface_pc_pub.publish(surface_msg);
+
+    sensor_msgs::PointCloud2 FullAll_msg;
+    pcl::toROSMsg(*pCloudFullAll, FullAll_msg);
+    FullAll_msg.header = pMsg->header;
+    all_pc_pub.publish(FullAll_msg);
+    ROS_INFO("get %lu scans from frame, allpts:%lu, cornerPts:%lu, surfacePts:%lu, fullAllPts:%lu",
+        vScansClouds.size(), pCloudIn->size(), pCloudCorner->size(),
+        pCloudSurface->size(), pCloudFullAll->size());
   }
 }
 
-void computeFeatures() {
-  // step0. 从第二个点开始遍历每个点直至倒数第二个点
-  // stpe1. 去除掉过近点和无效点后计算每个点的曲率(相邻点也不能是过近或者无效点)
-  // step2.
-  // 计算当前点到激光中心这个向量与当前点前后2个邻点组成的向量的夹角(入射角)
-  // step3. 忽略掉入射角过小的点(阈值为10)
-  // step4. 对于有效点如果曲率小于设定阈值则认为是平面
-  // step5.
-  // 如果曲率大于阈值并且前后点的距离差小于10%,则认为是角点(过滤掉遮挡的点)
-}
-
-void extract_good_points(pcl::PointCloud<pcl::PointXYZI>::Ptr pCloudIn,
-                         pcl::PointCloud<pcl::PointXYZI>::Ptr &pCloudOut) {
-  float corner_cav_th(0.05);
-  float surface_cav_th(0.05);
-  float max_fov(70.4); // degrees
-}
+// void extract_good_points(pcl::PointCloud<pcl::PointXYZI>::Ptr pCloudIn,
+//                          pcl::PointCloud<pcl::PointXYZI>::Ptr &pCloudOut) {
+//   float corner_cav_th(0.05);
+//   float surface_cav_th(0.05);
+//   float max_fov(70.4); // degrees
+// }
 
 LivoxFeature::LivoxFeature() {
   // 57.3 是角度与弧度的转换单位 70.4 max_fov
-  m_max_edge_polar_pos = std::pow(tan(66.6 / 57.3) * 1, 2);
+  m_max_edge_polar_pos = std::pow(tan(33.3 / 57.3) * 1, 2);
+  frame_cnt = 0;
 }
 
 LivoxFeature::~LivoxFeature() {}
 
 void LivoxFeature::add_mask_of_point(Pt_infos *pt_infos,
                                      const E_point_type &pt_type,
-                                     int neighbor_count = 0) {
+                                     int neighbor_count) {
 
   int idx = pt_infos->idx;
   pt_infos->pt_type |= pt_type;
@@ -121,8 +150,8 @@ float depth2_xyz(float x, float y, float z) { return x * x + y * y + z * z; }
 
 void LivoxFeature::set_intensity(
     pcl::PointXYZI &pt, int p_idx,
-    const E_intensity_type &i_type = e_I_motion_blur) {
-  Pt_infos *pt_info = m_pts_info_vec[p_idx];
+    const E_intensity_type &i_type) {
+  Pt_infos *pt_info = &m_pts_info_vec[p_idx];
   switch (i_type) {
   case (e_I_raw):
     pt.intensity = pt_info->raw_intensity;
@@ -155,6 +184,14 @@ void LivoxFeature::set_intensity(
 
 std::vector<PCloudXYZIPtr>
 LivoxFeature::preprocess_pointinfo(PCloudXYZI &cloudIn) {
+  // step0. 从第二个点开始遍历每个点直至倒数第二个点
+  // stpe1. 去除掉过近点和无效点后计算每个点的曲率(相邻点也不能是过近或者无效点)
+  // step2.
+  // 计算当前点到激光中心这个向量与当前点前后2个邻点组成的向量的夹角(入射角)
+  // step3. 忽略掉入射角过小的点(阈值为10)
+  // step4. 对于有效点如果曲率小于设定阈值则认为是平面
+  // step5.
+  // 如果曲率大于阈值并且前后点的距离差小于10%,则认为是角点(过滤掉遮挡的点)
   size_t pts_size = cloudIn.size();
   m_pts_info_vec.clear();
   m_pts_info_vec.resize(pts_size);
@@ -166,7 +203,7 @@ LivoxFeature::preprocess_pointinfo(PCloudXYZI &cloudIn) {
   std::vector<PCloudXYZIPtr> vScans;
   size_t curr_scan_pts(0);
   PCloudXYZIPtr curr_scan_clouds(new PCloudXYZI);
-  curr_scan_clous->points.resize(pts_size);
+  curr_scan_clouds->points.resize(pts_size);
 
   for (size_t idx = 0; idx < pts_size; idx++) {
     m_raw_pts_vec[idx] = cloudIn.points[idx];
@@ -176,9 +213,9 @@ LivoxFeature::preprocess_pointinfo(PCloudXYZI &cloudIn) {
     // pt_info->time_stamp = m_current_time + ((float)idx) *
     // m_time_internal_pts;
 
-    if (!std::isfinite(CloudIn.points[idx].x) ||
-        !std::isfinite(cloudIn.points[idx].y) ||
-        !std::isfinite(cloudIn.points[idx].z)) {
+    if (!std::isfinite(m_raw_pts_vec[idx].x) ||
+        !std::isfinite(m_raw_pts_vec[idx].y) ||
+        !std::isfinite(m_raw_pts_vec[idx].z)) {
       add_mask_of_point(pt_info, e_pt_nan);
       continue;
     }
@@ -238,7 +275,7 @@ LivoxFeature::preprocess_pointinfo(PCloudXYZI &cloudIn) {
 
       if (pt_info->polar_direction * m_pts_info_vec[idx - 1].polar_direction <
           0) {
-        if (idx - last_split_idx) > 50 )
+        if ((idx - last_split_idx) > 50 )
                 {
             last_split_idx = idx;
             scan_idx++;
@@ -290,9 +327,15 @@ void LivoxFeature::compute_features() {
   int critical_rm_point = e_pt_000 | e_pt_nan;
   float neighbor_accumulate_xyz[3] = {0.0, 0.0, 0.0};
 
+  std::string file_name = std::to_string(frame_cnt) + "_cloud.txt";
+  std::ofstream of(file_name);
+
   for (size_t idx = curvature_ssd_size; idx < pts_size - curvature_ssd_size;
        idx++) {
+    auto &pt = m_raw_pts_vec[idx];
+    of << idx << "," << pt.x << "," << pt.y << "," << pt.z << ",";
     if (m_pts_info_vec[idx].pt_type & critical_rm_point) {
+      of << "invalid \n";
       continue;
     }
 
@@ -329,6 +372,7 @@ void LivoxFeature::compute_features() {
     }
 
     if (m_pts_info_vec[idx].pt_label == e_label_invalid) {
+      of << "invalid\n";
       continue;
     }
 
@@ -339,6 +383,7 @@ void LivoxFeature::compute_features() {
         neighbor_accumulate_xyz[0] * neighbor_accumulate_xyz[0] +
         neighbor_accumulate_xyz[1] * neighbor_accumulate_xyz[1] +
         neighbor_accumulate_xyz[2] * neighbor_accumulate_xyz[2];
+    of << m_pts_info_vec[idx].curvature << ",";
 
     /*********** Compute plane angle ************/
     Eigen::Matrix<float, 3, 1> vec_a(m_raw_pts_vec[idx].x, m_raw_pts_vec[idx].y,
@@ -350,19 +395,35 @@ void LivoxFeature::compute_features() {
             m_raw_pts_vec[idx - curvature_ssd_size].y,
         m_raw_pts_vec[idx + curvature_ssd_size].z -
             m_raw_pts_vec[idx - curvature_ssd_size].z);
-    m_pts_info_vec[idx].view_angle =
-        Eigen_math::vector_angle(vec_a, vec_b, 1) * 57.3;
+    float vec_a_norm = vec_a.norm();
+    float vec_b_norm = vec_b.norm();
+    if (std::fabs(vec_a_norm) < 1e-5 || std::fabs(vec_b_norm) < 1e-5) {
+        m_pts_info_vec[idx].view_angle = 0.0;
+    } else {
+        m_pts_info_vec[idx].view_angle =
+            acos( abs( vec_a.dot( vec_b ) ) / ( vec_a_norm * vec_b_norm) ) * 57.3;
+            //Eigen_math::vector_angle(vec_a, vec_b, 1) * 57.3;
+    }
+
+    of << m_pts_info_vec[idx].view_angle << ",";
+    of << m_pts_info_vec[idx].polar_dis_sq2 << ",";
+    of << m_pts_info_vec[idx].polar_direction << ",";
+    of << m_pts_info_vec[idx].scan_idx << "\n";
+
 
     // printf( "Idx = %d, angle = %.2f\r\n", idx,  m_pts_info_vec[ idx
     // ].view_angle );
+    float minimum_view_angle(10.3);
     if (m_pts_info_vec[idx].view_angle > minimum_view_angle) {
 
+      float thr_surface_curvature(0.01);
       if (m_pts_info_vec[idx].curvature < thr_surface_curvature) {
         m_pts_info_vec[idx].pt_label |= e_label_surface;
       }
 
       float sq2_diff = 0.1;
 
+      float thr_corner_curvature(0.05);
       if (m_pts_info_vec[idx].curvature > thr_corner_curvature) {
         if (m_pts_info_vec[idx].depth_sq2 <=
                 m_pts_info_vec[idx - curvature_ssd_size].depth_sq2 &&
@@ -379,13 +440,15 @@ void LivoxFeature::compute_features() {
       }
     }
   }
+  of.close();
+  frame_cnt++;
 }
 
 std::vector<PCloudXYZIPtr> LivoxFeature::processCloud(PCloudXYZIPtr &pCloudIn) {
-  m_input_points_size = pCloudIn.points.size();
+  m_input_points_size = pCloudIn->points.size();
 
   std::vector<PCloudXYZIPtr> vClouds =
-      preprocess_pointinfo(laserCloudIn, scan_id_index);
+      preprocess_pointinfo(*pCloudIn);
   compute_features();
 
   return vClouds;
@@ -457,13 +520,14 @@ int main(int argc, char **argv) {
   ros::NodeHandle nh;
 
   std::string cloudSource;
+  ros::NodeHandle nh_private("~");
+  nh_private.getParam("pcd_source", cloudSource);
 
-  // ros::NodeHandle nh_private("~");
-  // nh_private.getParam("pcd_source", cloudSource);
   // mGridRes = nh_private.param("grid_res", 0.5);
   // mHeightTh = nh_private.param("height_th", 0.5);
   // mGetMinZFrames = nh_private.param("get_min_z_frames", 10);
-  // ROS_INFO("Get pcd cloud source msg: %s", cloudSource.c_str());
+
+  ROS_INFO("Get pcd cloud source msg: %s", cloudSource.c_str());
   ros::Subscriber pc_sub = nh.subscribe(cloudSource, 10, pointCloudCallback);
 
   std::thread process(processThread);

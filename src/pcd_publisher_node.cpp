@@ -80,6 +80,7 @@ int main(int argc, char** argv)
                 ROS_INFO("pcd file index: %lu, sleep time:%ld curr time:%ld, last time:%ld", index, sleepTime, currTimeMs, lastMs);
                 ros::Duration(static_cast<float>(sleepTime) / 1000.0).sleep();
             }
+            ros::Duration(0.5).sleep();
             std::string filePath = dirPath + '/' + currFileName + ".pcd";
             publish_pcd(pcd_pub, filePath);
 

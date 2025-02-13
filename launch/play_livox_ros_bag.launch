@@ -1,0 +1,16 @@
+<launch>
+  <!-- 启动 roscore -->
+  <group>
+    <node name="roscore" pkg="roslaunch" type="roscore" required="true" />
+  </group>
+
+  <!-- 播放 rosbag 文件 -->
+  <node name="play_bag" pkg="rosbag" type="play" args="/home/ruiyu/Data/livox_ros1/rosbag2_2023_03_09-13_42_46.bag" />
+
+  <!-- 启动 RViz -->
+  <node name="rviz" pkg="rviz" type="rviz" required="true">
+    <!-- 在这里可以指定RViz的配置文件, 如果需要 -->
+    <!-- <param name="config" value="$(find your_package)/config/your_rviz_config.rviz" /> -->
+  </node>
+</launch>
+
