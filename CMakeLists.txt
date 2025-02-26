@@ -15,6 +15,7 @@ find_package(catkin REQUIRED COMPONENTS
 )
 
 find_package(PCL 1.10 REQUIRED)
+find_package(yaml-cpp REQUIRED)  # 查找库
 
 add_definitions("-Wall -g -std=c++17")
 ## System dependencies are found with CMake's conventions
@@ -123,6 +124,7 @@ include_directories(
 # include
   ${catkin_INCLUDE_DIRS}
   ${PCL_INCLUDE_DIRS}
+  ${YAML_CPP_INCLUDE_DIRS}
 )
 
 ## Declare a C++ library
@@ -167,6 +169,7 @@ target_link_libraries(${PROJECT_NAME}_process
 target_link_libraries(livox_feature_extractor
   ${catkin_LIBRARIES}
   ${PCL_LIBRARIES}
+  ${YAML_CPP_LIBRARIES}
 )
 
 #############

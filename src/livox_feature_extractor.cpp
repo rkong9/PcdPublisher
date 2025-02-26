@@ -19,8 +19,10 @@
 #include <thread>
 #include <vector>
 #include <fstream>
+#include <yaml-cpp/yaml.h>
 
 #include "livox_feature_extractor.hpp"
+
 
 std::mutex mDataMutex;
 std::condition_variable mDataCv;
@@ -45,6 +47,10 @@ void processThread() {
 
   ros::NodeHandle nh;
   ros::NodeHandle nh_private("~");
+
+  std::string configPath;
+  nh_private.getParam("config_path", configPath);
+  lf.readConfig(configPath);
 
   ros::Publisher corner_pc_pub =
       nh.advertise<sensor_msgs::PointCloud2>("/corner_pc", 10);
@@ -125,6 +131,23 @@ LivoxFeature::LivoxFeature() {
 }
 
 LivoxFeature::~LivoxFeature() {}
+
+void LivoxFeature::readConfig(const std::string &cfgPath) {
+    YAML::Node config = YAML::LoadFile(cfgPath);
+    float maxAngle = config["max_angle"].as<float>();
+    m_max_edge_polar_pos = std::pow(tan(maxAngle / 57.3) * 1.0, 2);
+
+    float maxSurfaceDepth = config["feature_max_surface_depth"].as<float>();
+    m_feature_surface_depth_sq2_th = maxSurfaceDepth * maxSurfaceDepth;
+
+    float maxCornerDepth = config["feature_max_corner_depth"].as<float>();
+    m_feature_corner_depth_sq2_th = maxCornerDepth * maxCornerDepth;
+
+    m_minimum_view_angle = config["min_view_angle"].as<float>();
+    m_max_surface_curvature_th = config["max_surface_curvature_th"].as<float>();
+    m_min_corner_curvature_th = config["min_corner_curvature_th"].as<float>();
+    m_corner_neighbour_diff_th = config["corner_neighbour_diff_th"].as<float>();
+}
 
 void LivoxFeature::add_mask_of_point(Pt_infos *pt_infos,
                                      const E_point_type &pt_type,
@@ -324,7 +347,7 @@ LivoxFeature::preprocess_pointinfo(PCloudXYZI &cloudIn) {
 void LivoxFeature::compute_features() {
   unsigned int pts_size = m_raw_pts_vec.size();
   size_t curvature_ssd_size = 2;
-  int critical_rm_point = e_pt_000 | e_pt_nan;
+  int critical_rm_point = e_pt_000 | e_pt_nan | e_pt_circle_edge;
   float neighbor_accumulate_xyz[3] = {0.0, 0.0, 0.0};
 
   std::string file_name = std::to_string(frame_cnt) + "_cloud.txt";
@@ -383,7 +406,7 @@ void LivoxFeature::compute_features() {
         neighbor_accumulate_xyz[0] * neighbor_accumulate_xyz[0] +
         neighbor_accumulate_xyz[1] * neighbor_accumulate_xyz[1] +
         neighbor_accumulate_xyz[2] * neighbor_accumulate_xyz[2];
-    of << m_pts_info_vec[idx].curvature << ",";
+    of << m_pts_info_vec[idx].curvature << ", ";
 
     /*********** Compute plane angle ************/
     Eigen::Matrix<float, 3, 1> vec_a(m_raw_pts_vec[idx].x, m_raw_pts_vec[idx].y,
@@ -405,40 +428,45 @@ void LivoxFeature::compute_features() {
             //Eigen_math::vector_angle(vec_a, vec_b, 1) * 57.3;
     }
 
-    of << m_pts_info_vec[idx].view_angle << ",";
-    of << m_pts_info_vec[idx].polar_dis_sq2 << ",";
-    of << m_pts_info_vec[idx].polar_direction << ",";
-    of << m_pts_info_vec[idx].scan_idx << "\n";
+    of << m_pts_info_vec[idx].depth_sq2 << ", ";
+    of << m_pts_info_vec[idx].view_angle << ", ";
+    of << m_pts_info_vec[idx].polar_dis_sq2 << ", ";
+    of << m_pts_info_vec[idx].polar_direction << ", ";
+    of << m_pts_info_vec[idx].scan_idx << ", ";
 
 
     // printf( "Idx = %d, angle = %.2f\r\n", idx,  m_pts_info_vec[ idx
     // ].view_angle );
-    float minimum_view_angle(10.3);
-    if (m_pts_info_vec[idx].view_angle > minimum_view_angle) {
+    if (m_pts_info_vec[idx].view_angle > m_minimum_view_angle) {
 
-      float thr_surface_curvature(0.01);
-      if (m_pts_info_vec[idx].curvature < thr_surface_curvature) {
+      if (m_pts_info_vec[idx].curvature < m_max_surface_curvature_th) {
         m_pts_info_vec[idx].pt_label |= e_label_surface;
+        of << "surface,";
       }
 
-      float sq2_diff = 0.1;
+      float sq2_diff = m_corner_neighbour_diff_th;
 
-      float thr_corner_curvature(0.05);
-      if (m_pts_info_vec[idx].curvature > thr_corner_curvature) {
+      if (m_pts_info_vec[idx].curvature > m_min_corner_curvature_th) {
         if (m_pts_info_vec[idx].depth_sq2 <=
                 m_pts_info_vec[idx - curvature_ssd_size].depth_sq2 &&
             m_pts_info_vec[idx].depth_sq2 <=
                 m_pts_info_vec[idx + curvature_ssd_size].depth_sq2) {
+
           if (abs(m_pts_info_vec[idx].depth_sq2 -
                   m_pts_info_vec[idx - curvature_ssd_size].depth_sq2) <
                   sq2_diff * m_pts_info_vec[idx].depth_sq2 ||
               abs(m_pts_info_vec[idx].depth_sq2 -
                   m_pts_info_vec[idx + curvature_ssd_size].depth_sq2) <
-                  sq2_diff * m_pts_info_vec[idx].depth_sq2)
+                  sq2_diff * m_pts_info_vec[idx].depth_sq2) {
             m_pts_info_vec[idx].pt_label |= e_label_corner;
+            // if (m_pts_info_vec[idx].depth_sq2 < 100.0) {
+              of << " corner,";
+            // }
+          }
         }
       }
     }
+    of << "\n";
   }
   of.close();
   frame_cnt++;

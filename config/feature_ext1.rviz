@@ -64,7 +64,7 @@ Visualization Manager:
       Channel Name: intensity
       Class: rviz/PointCloud2
       Color: 255; 255; 255
-      Color Transformer: Intensity
+      Color Transformer: FlatColor
       Decay Time: 0
       Enabled: true
       Invert Rainbow: false
@@ -75,8 +75,8 @@ Visualization Manager:
       Queue Size: 10
       Selectable: true
       Size (Pixels): 3
-      Size (m): 0.05000000074505806
-      Style: Flat Squares
+      Size (m): 0.029999999329447746
+      Style: Points
       Topic: /pointcloud
       Unreliable: false
       Use Fixed Frame: true
@@ -91,8 +91,8 @@ Visualization Manager:
       Axis: Z
       Channel Name: intensity
       Class: rviz/PointCloud2
-      Color: 255; 255; 255
-      Color Transformer: Intensity
+      Color: 239; 41; 41
+      Color Transformer: FlatColor
       Decay Time: 0
       Enabled: true
       Invert Rainbow: false
@@ -103,7 +103,7 @@ Visualization Manager:
       Queue Size: 10
       Selectable: true
       Size (Pixels): 3
-      Size (m): 0.029999999329447746
+      Size (m): 0.05000000074505806
       Style: Flat Squares
       Topic: /corner_pc
       Unreliable: false
@@ -119,8 +119,8 @@ Visualization Manager:
       Axis: Z
       Channel Name: intensity
       Class: rviz/PointCloud2
-      Color: 255; 255; 255
-      Color Transformer: Intensity
+      Color: 78; 154; 6
+      Color Transformer: FlatColor
       Decay Time: 0
       Enabled: true
       Invert Rainbow: false
@@ -166,7 +166,7 @@ Visualization Manager:
   Views:
     Current:
       Class: rviz/Orbit
-      Distance: 98.98039245605469
+      Distance: 25.15615463256836
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.05999999865889549
         Stereo Focal Distance: 1
@@ -174,17 +174,17 @@ Visualization Manager:
         Value: false
       Field of View: 0.7853981852531433
       Focal Point:
-        X: 23.112667083740234
-        Y: 6.003147125244141
-        Z: 0.0251676756888628
+        X: 19.733938217163086
+        Y: -3.8838980197906494
+        Z: 6.161017894744873
       Focal Shape Fixed Size: true
       Focal Shape Size: 0.05000000074505806
       Invert Z Axis: true
       Name: Current View
       Near Clip Distance: 0.009999999776482582
-      Pitch: 0.30520281195640564
+      Pitch: 0.39020267128944397
       Target Frame: <Fixed Frame>
-      Yaw: 3.103573799133301
+      Yaw: 3.348621368408203
     Saved: ~
 Window Geometry:
   Displays:
@@ -203,4 +203,4 @@ Window Geometry:
     collapsed: false
   Width: 2102
   X: 1320
-  Y: 148
+  Y: 37

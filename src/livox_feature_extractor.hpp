@@ -29,13 +29,13 @@ public:
   };
 
   enum E_feature_type // if and only if normal point can be labeled
-  { e_label_invalid = -1,
-    e_label_unlabeled = 0,
-    e_label_corner = 0x0001 << 0,
-    e_label_surface = 0x0001 << 1,
-    e_label_near_nan = 0x0001 << 2,
-    e_label_near_zero = 0x0001 << 3,
-    e_label_hight_intensity = 0x0001 << 4,
+  { e_label_invalid = 0,
+    e_label_unlabeled = 1,
+    e_label_corner = 0x0001 << 2,
+    e_label_surface = 0x0001 << 3,
+    e_label_near_nan = 0x0001 << 4,
+    e_label_near_zero = 0x0001 << 5,
+    e_label_hight_intensity = 0x0001 << 6,
   };
 
   // Encode point infos using points intensity, which is more convenient for
@@ -78,6 +78,7 @@ public:
   std::vector<PCloudXYZIPtr> processCloud(PCloudXYZIPtr &pCloudIn);
   void set_intensity(pcl::PointXYZI &pt, int p_idx,
                      const E_intensity_type &i_type = e_I_motion_blur);
+  void readConfig(const std::string &cfgPath);
 
 private:
   // void extract_good_points();
@@ -97,7 +98,13 @@ private:
   float m_max_edge_polar_pos;
   float m_feature_surface_depth_sq2_th = 40000.0;
   float m_feature_corner_depth_sq2_th = 6400.0;
+  float m_minimum_view_angle;
+  float m_max_surface_curvature_th;
+  float m_min_corner_curvature_th;
+  float m_corner_neighbour_diff_th;
   int frame_cnt;
+
+  // config
 };
 
 #endif

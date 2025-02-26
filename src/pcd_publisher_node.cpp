@@ -45,6 +45,8 @@ int main(int argc, char** argv)
     std::string dirPath;
     ros::NodeHandle nh_private("~");
     nh_private.getParam("pcd_dir", dirPath);
+    double frame_rate(-1);
+    nh_private.getParam("frame_rate", frame_rate);
     ROS_INFO("Get pcd dir path: %s", dirPath.c_str());
     if (!std::filesystem::exists(dirPath)) {
         ROS_ERROR("Error: Folder %s does not exist!", dirPath.c_str());
@@ -66,6 +68,10 @@ int main(int argc, char** argv)
 
     size_t index(0);
     int64_t lastMs(0);
+    ros::Rate rate(10);
+    if (frame_rate > 0) {
+        rate = ros::Rate(frame_rate);
+    }
     while (ros::ok())
     {
         if (index < vFilePath.size()) {
@@ -76,11 +82,16 @@ int main(int argc, char** argv)
             }
 
             int64_t sleepTime = currTimeMs - lastMs;
-            if (sleepTime >= 30) {
-                ROS_INFO("pcd file index: %lu, sleep time:%ld curr time:%ld, last time:%ld", index, sleepTime, currTimeMs, lastMs);
-                ros::Duration(static_cast<float>(sleepTime) / 1000.0).sleep();
+            if (frame_rate < 0) {
+                if (sleepTime >= 30) {
+                    ROS_INFO("pcd file index: %lu, sleep time:%ld curr time:%ld, last time:%ld", index, sleepTime, currTimeMs, lastMs);
+                    ros::Duration(static_cast<float>(sleepTime) / 1000.0).sleep();
+                }
+            } else {
+                rate.sleep();
             }
-            ros::Duration(0.5).sleep();
+
+            // ros::Duration(0.5).sleep();
             std::string filePath = dirPath + '/' + currFileName + ".pcd";
             publish_pcd(pcd_pub, filePath);
 

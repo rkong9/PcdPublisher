@@ -1,10 +1,12 @@
 <launch>
     <node pkg="pcd_publisher" type="pcd_publisher_node" name="publish1">
-        <param name="pcd_dir" value="/home/ruiyu/Data/SimulationData/265-gantryDrive-20230816-140323/lidarLivox_013/" />
+        <param name="pcd_dir" value="/home/ruiyu/Data/SimulationData/261_DRIVE/lidarLivox_010/" />
+        <param name="frame_rate" value="5.0" />
     </node>
 
     <node pkg="pcd_publisher" type="livox_feature_extractor" name="feature_ext1">
         <param name="pcd_source" value="pointcloud" />
+        <param name="config_path" value="/home/ruiyu/catkin_ws/src/pcd_publisher/config/livoxMid70_feature.yaml" />
     </node>
 
     <arg name="rviz" default="true" />

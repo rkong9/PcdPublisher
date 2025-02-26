@@ -1,0 +1,9 @@
+max_angle: 33 # degree
+feature_max_surface_depth: 80.0 # meter
+feature_max_corner_depth: 80.0 # meter
+
+min_view_angle: 10.0 # degree
+max_surface_curvature_th: 0.01
+min_corner_curvature_th: 0.1
+
+corner_neighbour_diff_th: 0.15
