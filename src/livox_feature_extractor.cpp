@@ -149,7 +149,7 @@ void LivoxFeature::readConfig(const std::string &cfgPath) {
     m_corner_neighbour_diff_th = config["corner_neighbour_diff_th"].as<float>();
 }
 
-void LivoxFeature::add_mask_of_point(Pt_infos *pt_infos,
+void LivoxFeature::add_mask_of_point (Pt_infos *pt_infos,
                                      const E_point_type &pt_type,
                                      int neighbor_count) {
 
