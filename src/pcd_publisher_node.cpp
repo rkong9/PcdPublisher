@@ -9,7 +9,7 @@
 #include <vector>
 
 uint32_t mSeqId(0);
-void publish_pcd(const ros::Publisher& pub, const std::string& pcd_file_path)
+void publish_pcd(const ros::Publisher& pub, const std::string& pcd_file_path, int64_t timestamp)
 {
     // 读取 PCD 文件
     pcl::PointCloud<pcl::PointXYZI>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZI>);
@@ -18,13 +18,14 @@ void publish_pcd(const ros::Publisher& pub, const std::string& pcd_file_path)
         ROS_ERROR("Couldn't read file %s", pcd_file_path.c_str());
         return;
     }
+    cloud->header.stamp = timestamp;
 
     // 创建 PointCloud2 消息
     sensor_msgs::PointCloud2 output;
     pcl::toROSMsg(*cloud, output);
 
     // 设置消息头部信息
-    output.header.stamp = ros::Time::now();
+    // output.header.stamp = timestamp;
     output.header.frame_id = "map";  // 设置坐标系为 "map"
     output.header.seq = mSeqId;
 
@@ -93,7 +94,8 @@ int main(int argc, char** argv)
 
             // ros::Duration(0.5).sleep();
             std::string filePath = dirPath + '/' + currFileName + ".pcd";
-            publish_pcd(pcd_pub, filePath);
+            int64_t timestamp = std::atol(currFileName.c_str());
+            publish_pcd(pcd_pub, filePath, timestamp);
 
             lastMs = currTimeMs;
             index++;

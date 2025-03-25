@@ -1,9 +1,41 @@
-max_angle: 33 # degree
-feature_max_surface_depth: 80.0 # meter
-feature_max_corner_depth: 80.0 # meter
+use_new_feature: true
+LivoxFeature:
+  max_angle: 33 # degree
+  feature_max_surface_depth: 80.0 # meter
+  feature_max_corner_depth: 80.0 # meter
 
-min_view_angle: 10.0 # degree
-max_surface_curvature_th: 0.01
-min_corner_curvature_th: 0.1
+  min_view_angle: 10.0 # degree
+  max_surface_curvature_th: 0.01
+  min_corner_curvature_th: 0.1
 
-corner_neighbour_diff_th: 0.15
+  corner_neighbour_diff_th: 0.15
+
+FeatureExtractor:
+  calc_win_size: 2
+  debug_level: 1
+  small_dis_th: 0.05
+  zero_pt_th: 0.1
+  corner_curv_th: 0.2
+  max_corner_dis: 60.0 #unit m
+  corner_pts_interval: 3
+
+  surf_curv_th: 0.01
+  max_surface_dis: 50.0 #unit m
+  surf_pts_interval: 3
+  surf_neighbour_diff_ratio: 1.5
+
+FeatureMapping:
+  max_buffer_size: 20 # initializiing
+
+  # search
+  search_line_pts: 10
+  valid_line_pts_th: 5
+  search_line_angle_th: 3.0
+  line_huber_loss_th: 0.1
+  line_check_ratio: 3.0
+
+  search_surface_pts: 10
+  valid_surf_pts_th: 5
+  search_surface_angle_th: 3.0
+  surf_huber_loss_th: 0.1
+  surf_check_ratio: [10.0, 10.0]

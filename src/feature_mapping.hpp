@@ -17,6 +17,7 @@
 #include <memory>
 #include <yaml-cpp/yaml.h>
 #include <pcl/search/kdtree.h>
+#include <ceres/ceres.h>
 
 
 typedef pcl::PointCloud<pcl::PointXYZI> PCloudXYZI;
@@ -26,22 +27,29 @@ class FeatureMapping {
 public:
     FeatureMapping();
     ~FeatureMapping();
-    void setCornerFeatures(PCloudXYZIPtr &pCorner) {
-        mCornersCurr = pCorner;
-    }
-    void setSurfaceFeatures(PCloudXYZIPtr &pSurface) {
-        mSurfaceCurr = pSurface;
-    }
+    void setInputData(PCloudXYZIPtr &pCorners, PCloudXYZIPtr &pSurfaces, PCloudXYZIPtr &pValidAll);
 
-    int calcTransform();
+    int calcTransform(Eigen::Quaterniond &q, Eigen::Vector3d &trans);
     void readConfig(const YAML::Node &config);
-    void updateFeatures();
-    void getCalculatedFeat(PCloudXYZIPtr &pCorners, PCloudXYZIPtr &pSurfaces) {
+    void updateAllFeatures();
+    void reset();
+    void trans2End();
+    void getCalculatedFeature(PCloudXYZIPtr &pCorners, PCloudXYZIPtr &pSurfaces) {
       *pCorners = *mCalculatedCorner;
       *pSurfaces = *mCalculatedSurface;
     }
+    void getOdom(Eigen::Quaterniond &q, Eigen::Vector4d &t);
+    void assocateCloud2Map(PCloudXYZIPtr &pcloudIn);
+    void getMap();
 
 private:
+    int buildPoint2LineProblem(ceres::Problem &problem);
+    int buildPoint2PlaneProblem(ceres::Problem &problem);
+    Eigen::Matrix3d getCovMat(const PCloudXYZIPtr &pcloud, const std::vector<int> &indices);
+    inline Eigen::Vector3d getEPointFromP(const pcl::PointXYZI &pt);
+
+private:
+    // data buffer
     std::deque<PCloudXYZIPtr> mvHistoryCorner;
     std::deque<PCloudXYZIPtr> mvHistorySurface;
 
@@ -50,6 +58,8 @@ private:
 
     PCloudXYZIPtr mCornersCurr;
     PCloudXYZIPtr mSurfaceCurr;
+    PCloudXYZIPtr mValidAllCurr;
+    PCloudXYZIPtr mMap;
 
     PCloudXYZIPtr mCalculatedCorner;
     PCloudXYZIPtr mCalculatedSurface;
@@ -57,8 +67,55 @@ private:
     pcl::KdTreeFLANN<pcl::PointXYZI> mCornersKdTree;
     pcl::KdTreeFLANN<pcl::PointXYZI> mSurfacesKdTree;
 
+    std::vector<int> mSearchLineIndices;
+    std::vector<int> mSearchSurfIndices;
+
+    PCloudXYZIPtr mSearchLineClouds;
+    PCloudXYZIPtr mSearchSurClouds;
+
     std::mutex mCornerMtx;
     std::mutex mSurfaceMtx;
+
+    // config
+    size_t mBufferSize;
+
+    // int mValidLines;
+    // int mValidSurfaces;
+
+    // calc transform
+    int mSearchLinePts;
+    int mValidLinePtsTh;
+    float mSearchLineAngleTh;
+    float mLineHuberLossTh;
+    float mLineCheckRatio;
+
+    int mSearchSurfacePts;
+    int mValidSurfPtsTh;
+    float mSearchSurAngleTh;
+    float mSurfHuberLossTh;
+    float mSurfCheckRatio[2];
+
+    Eigen::Quaterniond m_q_w_last;
+    Eigen::Vector3d m_t_w_last;
+
+    double m_para_buffer[7] = {0, 0, 0, 1, 0, 0, 0};
+    Eigen::Map<Eigen::Quaterniond> m_q_incre = Eigen::Map<Eigen::Quaterniond>(m_para_buffer);
+    Eigen::Map<Eigen::Vector3d> m_t_incre = Eigen::Map<Eigen::Vector3d>(m_para_buffer + 4);
+};
+
+struct DataPack {
+    sensor_msgs::PointCloud2Ptr pCorners;
+    sensor_msgs::PointCloud2Ptr pSurfaces;
+    sensor_msgs::PointCloud2Ptr pValidAll;
+    DataPack() {
+        pCorners = nullptr;
+        pSurfaces = nullptr;
+        pValidAll = nullptr;
+    }
+
+    bool isComplete() {
+        return pCorners && pSurfaces && pValidAll;
+    }
 };
 
 #endif

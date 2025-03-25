@@ -17,6 +17,12 @@ find_package(catkin REQUIRED COMPONENTS
 find_package(PCL 1.10 REQUIRED)
 find_package(yaml-cpp REQUIRED)  # 查找库
 
+set(Ceres_LIBS_DIR /usr/lib)
+set(LIBS ${Ceres_LIBS_DIR}/libceres.so.1 umfpack cxsparse glog gflags gomp
+        ccolamd btf klu cholmod lapack blas camd amd pthread)
+
+find_package(Ceres REQUIRED)
+
 add_definitions("-Wall -g -std=c++17")
 ## System dependencies are found with CMake's conventions
 # find_package(Boost REQUIRED COMPONENTS system)
@@ -144,6 +150,7 @@ include_directories(
 add_executable(${PROJECT_NAME}_node src/pcd_publisher_node.cpp)
 add_executable(${PROJECT_NAME}_process src/pcd_process.cpp)
 add_executable(livox_feature_extractor src/livox_feature_extractor.cpp)
+add_executable(feature_mapping src/feature_mapping.cpp)
 
 ## Rename C++ executable without prefix
 ## The above recommended prefix causes long target names, the following renames the
@@ -170,6 +177,13 @@ target_link_libraries(livox_feature_extractor
   ${catkin_LIBRARIES}
   ${PCL_LIBRARIES}
   ${YAML_CPP_LIBRARIES}
+)
+
+target_link_libraries(feature_mapping
+  ${catkin_LIBRARIES}
+  ${PCL_LIBRARIES}
+  ${YAML_CPP_LIBRARIES}
+  ${CERES_LIBRARIES}
 )
 
 #############

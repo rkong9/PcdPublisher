@@ -44,13 +44,22 @@ void pointCloudCallback(const sensor_msgs::PointCloud2ConstPtr &msg) {
 
 void processThread() {
   LivoxFeature lf;
+  FeatureExtractor fe;
 
   ros::NodeHandle nh;
   ros::NodeHandle nh_private("~");
 
   std::string configPath;
   nh_private.getParam("config_path", configPath);
-  lf.readConfig(configPath);
+
+  YAML::Node config = YAML::LoadFile(configPath);
+  bool gUseNewFeature = config["use_new_feature"].as<bool>();
+
+  if (gUseNewFeature) {
+    fe.readConfig(config["FeatureExtractor"]);
+  } else {
+    lf.readConfig(config["LivoxFeature"]);
+  }
 
   ros::Publisher corner_pc_pub =
       nh.advertise<sensor_msgs::PointCloud2>("/corner_pc", 10);
@@ -94,25 +103,35 @@ void processThread() {
 
     pcl::fromROSMsg(*pMsg, *pCloudIn);
 
-    std::vector<PCloudXYZIPtr> vScansClouds = lf.processCloud(pCloudIn);
-    lf.getFeatures(*pCloudCorner, *pCloudSurface, *pCloudFullAll, 0, pCloudIn->size() - 1, 5);
+    if (gUseNewFeature) {
+        fe.setInputCloud(pCloudIn);
+        fe.compute_features();
+        fe.getFeatures(pCloudCorner, pCloudSurface, pCloudFullAll);
+    } else {
+        std::vector<PCloudXYZIPtr> vScansClouds = lf.processCloud(pCloudIn);
+        lf.getFeatures(*pCloudCorner, *pCloudSurface, *pCloudFullAll, 0, pCloudIn->size() - 1, 5);
+        ROS_INFO("get %lu scans from frame", vScansClouds.size());
+    }
 
     sensor_msgs::PointCloud2 corner_msg;
     pcl::toROSMsg(*pCloudCorner, corner_msg);
     corner_msg.header = pMsg->header;
+    corner_msg.header.frame_id = "c";
     corner_pc_pub.publish(corner_msg);
 
     sensor_msgs::PointCloud2 surface_msg;
     pcl::toROSMsg(*pCloudSurface, surface_msg);
     surface_msg.header = pMsg->header;
+    surface_msg.header.frame_id = "s";
     surface_pc_pub.publish(surface_msg);
 
     sensor_msgs::PointCloud2 FullAll_msg;
     pcl::toROSMsg(*pCloudFullAll, FullAll_msg);
     FullAll_msg.header = pMsg->header;
+    FullAll_msg.header.frame_id = "f";
     all_pc_pub.publish(FullAll_msg);
-    ROS_INFO("get %lu scans from frame, allpts:%lu, cornerPts:%lu, surfacePts:%lu, fullAllPts:%lu",
-        vScansClouds.size(), pCloudIn->size(), pCloudCorner->size(),
+    ROS_INFO("allpts:%lu, cornerPts:%lu, surfacePts:%lu, fullAllPts:%lu",
+        pCloudIn->size(), pCloudCorner->size(),
         pCloudSurface->size(), pCloudFullAll->size());
   }
 }
@@ -132,8 +151,7 @@ LivoxFeature::LivoxFeature() {
 
 LivoxFeature::~LivoxFeature() {}
 
-void LivoxFeature::readConfig(const std::string &cfgPath) {
-    YAML::Node config = YAML::LoadFile(cfgPath);
+void LivoxFeature::readConfig(const YAML::Node &config) {
     float maxAngle = config["max_angle"].as<float>();
     m_max_edge_polar_pos = std::pow(tan(maxAngle / 57.3) * 1.0, 2);
 
@@ -350,7 +368,7 @@ void LivoxFeature::compute_features() {
   int critical_rm_point = e_pt_000 | e_pt_nan | e_pt_circle_edge;
   float neighbor_accumulate_xyz[3] = {0.0, 0.0, 0.0};
 
-  std::string file_name = std::to_string(frame_cnt) + "_cloud.txt";
+  std::string file_name = std::to_string(frame_cnt) + "_" + std::to_string(m_timestamp) + "_cloud.txt";
   std::ofstream of(file_name);
 
   for (size_t idx = curvature_ssd_size; idx < pts_size - curvature_ssd_size;
@@ -474,11 +492,20 @@ void LivoxFeature::compute_features() {
 
 std::vector<PCloudXYZIPtr> LivoxFeature::processCloud(PCloudXYZIPtr &pCloudIn) {
   m_input_points_size = pCloudIn->points.size();
+  m_timestamp = pCloudIn->header.stamp;
+
+  ros::WallTime startTime = ros::WallTime::now();
 
   std::vector<PCloudXYZIPtr> vClouds =
       preprocess_pointinfo(*pCloudIn);
-  compute_features();
+  ros::WallTime preprocessTime = ros::WallTime::now();
+  int64_t preprocessDiff = static_cast<int64_t>((preprocessTime - startTime).toNSec() * 1e-6);
 
+  compute_features();
+  ros::WallTime computeTime = ros::WallTime::now();
+  int64_t computeDiff = static_cast<int64_t>((computeTime - startTime).toNSec() * 1e-6);
+
+  ROS_INFO("preprocess cost time:%ld ms, computeFeature cost time:%ld", preprocessDiff, computeDiff);
   return vClouds;
 }
 
@@ -542,6 +569,163 @@ void LivoxFeature::getFeatures(pcl::PointCloud<pcl::PointXYZI> &pc_corners,
   pc_full_res.resize(full_num);
 }
 
+FeatureExtractor::FeatureExtractor() {
+}
+
+FeatureExtractor::~FeatureExtractor() {
+
+}
+
+void FeatureExtractor::readConfig(const YAML::Node& config) {
+    mPtsPerSec = config["pts_per_sec"].as<int>();
+    mCalcWinSize = config["calc_win_size"].as<int>();
+    mDebugLevel = config["debug_level"].as<int>();
+    mSmallDisTh = config["small_dis_th"].as<float>();
+    mZeroPtTh = config["zero_pt_th"].as<float>();
+    mCornerCurvTh = config["corner_curv_th"].as<float>();
+    mMaxCornerDis = config["max_corner_dis"].as<float>();
+    mCornerPtsInterval = config["corner_pts_interval"].as<float>();
+
+    mSurfCurvTh = config["surf_curv_th"].as<float>();
+    mMaxSurfDis = config["max_surface_dis"].as<float>();
+    mSurfPtsInterval = config["surf_pts_interval"].as<float>();
+    mSurfNeighbourDiffRatio = config["surf_neighbour_diff_ratio"].as<float>();
+}
+
+inline int FeatureExtractor::getPointStatus(const pcl::PointXYZI &pt) {
+    int label(0);
+    if (!std::isfinite(pt.x) || !std::isfinite(pt.y) || !std::isfinite(pt.z)) {
+        label |= static_cast<int>(PtLabels::pt_nan);
+    } else if (pt.x < 0.1 && std::fabs(pt.y) < 0.1 && std::fabs(pt.z) < 0.1) {
+        label |= static_cast<int>(PtLabels::pt_too_near);
+    }
+    return label;
+}
+
+void FeatureExtractor::compute_features() {
+    mvPtsInfo = std::vector<PtsInfo>(mpSrcCloud->size());
+    mPtsNums = static_cast<int>(mpSrcCloud->size());
+    int abnormal_label = static_cast<int>(PtLabels::pt_nan) | static_cast<int>(PtLabels::pt_too_near);
+    // first point
+    PtsInfo &pti = mvPtsInfo[0];
+    pti.label = getPointStatus(mpSrcCloud->points[0]);
+    if ((pti.label & abnormal_label) == 0) {
+        pti.idx = 0;
+        pti.dis2Origin = getEPt(mpSrcCloud->points[0]).norm();
+    }
+
+    for (int i = 1; i < mPtsNums; i++) {
+        auto &pti = mvPtsInfo[i];
+        auto &pti_p = mvPtsInfo[i - 1];
+
+        pti.idx = i;
+        pti.label = getPointStatus(mpSrcCloud->points[i]);
+        if ((pti.label & abnormal_label) || (pti_p.label & abnormal_label)) {
+            continue;
+        }
+
+        Eigen::Vector3f pt = getEPt(mpSrcCloud->points[i]);
+        Eigen::Vector3f pt_p = getEPt(mpSrcCloud->points[i - 1]);
+        pti_p.v2Next = pt - pt_p;
+        pti_p.dis2Next = pti_p.v2Next.norm();
+        pti_p.v2Next.normalize();
+
+        pti.dis2Origin = pt.dot(pt);
+    }
+
+    for (int i = mCalcWinSize; i < mPtsNums - mCalcWinSize; i++) {
+        auto &pti = mvPtsInfo[i];
+        for (int j = 1; j <= mCalcWinSize; j++) {
+            auto &pti_n = mvPtsInfo[i + j - 1];
+            auto &pti_rn = mvPtsInfo[i + j];
+            if (!(pti_n.label & abnormal_label) && !(pti_rn.label & abnormal_label)) {
+                pti.vCurv3f += (mCalcWinSize - j + 1) * pti_n.v2Next;
+                pti.validNears++;
+                if (pti.dis2Origin < pti_rn.dis2Origin - mSmallDisTh) {
+                    pti.disSmallNears++;
+                }
+
+                if (pti_n.dis2Next < pti.minNeighbourDiff) {
+                    pti.minNeighbourDiff = pti_n.dis2Next;
+                }
+                if (pti_n.dis2Next > pti.maxNeighbourDiff) {
+                    pti.maxNeighbourDiff = pti_n.dis2Next;
+                }
+            }
+
+            auto &pti_p = mvPtsInfo[i - j];
+            if (!(pti_p.label & abnormal_label)) {
+                pti.vCurv3f += -(mCalcWinSize - j + 1) * pti_p.v2Next;
+                pti.validNears++;
+                if (pti.dis2Origin < pti_p.dis2Origin - mSmallDisTh) {
+                    pti.disSmallNears++;
+                }
+
+                if (pti_p.dis2Next < pti.minNeighbourDiff) {
+                    pti.minNeighbourDiff = pti_p.dis2Next;
+                }
+                if (pti_p.dis2Next > pti.maxNeighbourDiff) {
+                    pti.maxNeighbourDiff = pti_p.dis2Next;
+                }
+            }
+        }
+        if (pti.validNears == mCalcWinSize * 2) {
+            pti.vCurv3f /= mCalcWinSize * 2;
+            pti.curv2 = pti.vCurv3f.dot(pti.vCurv3f);
+        }
+    }
+}
+
+int FeatureExtractor::getFeatures(pcl::PointCloud<pcl::PointXYZI>::Ptr &pCorners,
+    pcl::PointCloud<pcl::PointXYZI>::Ptr &pSurfaces,
+    pcl::PointCloud<pcl::PointXYZI>::Ptr &pValidAll) {
+    pCorners->clear();
+    pSurfaces->clear();
+    pValidAll->clear();
+
+    float corner_curv_th = mCornerCurvTh * mCornerCurvTh;
+    float surf_curv_th = mSurfCurvTh * mSurfCurvTh;
+    float max_corner_dis_th = mMaxCornerDis * mMaxCornerDis;
+    float max_surf_dis_th = mMaxSurfDis * mMaxSurfDis;
+    int abnormal_label = static_cast<int>(PtLabels::pt_nan) | static_cast<int>(PtLabels::pt_too_near);
+
+    // std::ofstream of("./test_of");
+    int lastCIdx(0), lastSIdx(0);
+    for (int i = mCalcWinSize; i < mPtsNums - mCalcWinSize; i++) {
+        auto &pti = mvPtsInfo[i];
+        auto &pt = mpSrcCloud->points[i];
+        // of << i << "," << pt.x << "," << pt.y << "," << pt.z << ",";
+        if (pti.label & abnormal_label) {
+            // of << std::endl;
+            continue;
+        }
+        pt.intensity += 1.0 / static_cast<float>(mPtsPerSec) * i; // time stamp
+
+        if (pti.curv2 > corner_curv_th && pti.disSmallNears == mCalcWinSize * 2
+            && pti.dis2Origin < max_corner_dis_th && i > lastCIdx + mCornerPtsInterval) {
+            pCorners->push_back(pt);
+            pti.label |= static_cast<int>(PtLabels::pt_corner);
+            lastCIdx = i;
+        }
+
+        if (pti.curv2 < surf_curv_th && pti.maxNeighbourDiff < pti.minNeighbourDiff * mSurfNeighbourDiffRatio
+            && pti.dis2Origin < max_surf_dis_th && i > lastSIdx + mSurfPtsInterval) {
+            pSurfaces->push_back(pt);
+            pti.label |= static_cast<int>(PtLabels::pt_surface);
+            lastSIdx = i;
+        }
+
+        if (pt.intensity < 2.0 && pti.validNears >= 2) {
+            pValidAll->push_back(pt);
+        }
+        // of << pti << std::endl;
+    }
+    // of.close();
+
+    return 0;
+}
+
+
 int main(int argc, char **argv) {
   // 初始化 ROS
   ros::init(argc, argv, "livox_feature_extractor");
@@ -557,7 +741,6 @@ int main(int argc, char **argv) {
 
   ROS_INFO("Get pcd cloud source msg: %s", cloudSource.c_str());
   ros::Subscriber pc_sub = nh.subscribe(cloudSource, 10, pointCloudCallback);
-
   std::thread process(processThread);
 
   ros::spin();
